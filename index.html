@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#111b32">
+<title>COIN CATCHER — Baby Huey Games</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0b1222;color:#fff2cf;font-family:Arial,Helvetica,sans-serif;touch-action:none}
+body{display:flex;align-items:center;justify-content:center}
+#game{position:relative;width:min(100vw,56.25vh);height:min(100vh,177.78vw);aspect-ratio:9/16;background:#182846;overflow:hidden;border:0;box-shadow:none}
+canvas{width:100%;height:100%;display:block;image-rendering:pixelated}
+#hud{position:absolute;top:0;left:0;right:0;display:flex;gap:6px;padding:9px;pointer-events:none}
+.stat{background:#101c31eF;border:2px solid #526c89;padding:6px 8px;min-width:68px;box-shadow:3px 3px 0 #080e19}
+.stat small{display:block;color:#9db5cb;font-size:9px;letter-spacing:1px}.stat b{font-size:17px}
+#sound{pointer-events:auto;margin-left:auto;border:2px solid #68829b;background:#203653;color:#fff2cf;font:inherit;font-size:11px;padding:6px}
+#overlay{position:absolute;inset:0;background:#071020c9;display:flex;align-items:center;justify-content:center;padding:18px}
+.panel{width:100%;max-width:430px;text-align:center;padding:28px 20px;background:#192c49;border:4px solid #f6c65c;border-radius:26px;box-shadow:0 17px 0 #080e19}
+.logo{font-weight:800;font-size:clamp(36px,9vw,58px);line-height:1.04;letter-spacing:0;color:#ffd05c;text-shadow:none}
+.sub{color:#9ee0b6;font-size:14px;font-weight:700;letter-spacing:4px;margin:14px 0 20px}
+.panel p{font-size:15px;line-height:1.55;color:#dbe7e8}
+.primary{display:block;width:min(100%,280px);margin:16px auto 0;background:linear-gradient(#ffdc65,#ff9f35);color:#552b2b;border:0;border-radius:22px;border-bottom:8px solid #a94f2d;padding:17px 20px;font:800 19px Arial,Helvetica,sans-serif}
+.primary:active{transform:translateY(4px);border-bottom-width:4px}
+#again{display:table;width:auto;min-width:0;padding-left:24px;padding-right:24px;margin-left:auto;margin-right:auto}
+.secondary{background:linear-gradient(#ffdc65,#ff9f35);color:#552b2b}
+#panel .score-value{font-size:42px;font-weight:800;color:#ffd05c;margin:4px 0 10px}
+
+#hint{position:absolute;bottom:max(18px,env(safe-area-inset-bottom));left:12px;right:12px;text-align:center;color:#dce8e2;font-size:10px;letter-spacing:.4px;text-shadow:1px 2px #102033;pointer-events:none}
+@media (orientation:landscape) and (max-height:600px){#game{width:min(56.25vh,100vw);height:min(100vh,177.78vw)}}
+</style>
+</head>
+<body>
+<div id="game">
+<canvas id="c" width="540" height="960"></canvas>
+<div id="hud">
+ <div class="stat"><small>SKOR</small><b id="score">0000</b></div>
+ <div class="stat"><small>WAKTU</small><b id="time">60</b></div>
+ <div class="stat"><small>NYAWA</small><b id="lives">♥ ♥ ♥</b></div>
+ <button id="sound">♫ ON</button>
+</div>
+<div id="hint">GESER KARAKTER KE KIRI / KANAN • TANGKAP KOIN, HINDARI BOM</div>
+
+<div id="overlay"><div class="panel" id="panel">
+ <div class="logo">COIN<br>CATCHER</div>
+ <p>Tangkap koin emas yang jatuh dari langit! Hindari bom dan kumpulkan koin spesial untuk bonus besar.</p>
+ <p><b>60 DETIK · 3 NYAWA</b><br>Geser layar, gunakan tombol, atau tekan ← → pada keyboard.</p>
+ <button class="primary" id="start">MULAI MAIN ▶</button>
+</div></div>
+</div>
+<script>
+(()=>{
+'use strict';
+const c=document.getElementById('c');let g=c.getContext('2d');const W=540,H=960;
+g.imageSmoothingEnabled=false;
+const $=id=>document.getElementById(id);
+let mode='title',score=0,time=60,lives=3,items=[],sparks=[],keys={left:false,right:false},player={x:270,y:820,w:78,h:58},last=0,elapsed=0,spawn=0,audio=true,aCtx=null,musicTimer=null,drag=false;
+const rand=(a,b)=>a+Math.random()*(b-a);
+function sound(f=600,d=.08,w='square',v=.035){if(!audio)return;try{aCtx=aCtx||new(window.AudioContext||window.webkitAudioContext)();let o=aCtx.createOscillator(),a=aCtx.createGain();o.type=w;o.frequency.value=f;a.gain.value=v;o.connect(a);a.connect(aCtx.destination);o.start();a.gain.exponentialRampToValueAtTime(.001,aCtx.currentTime+d);o.stop(aCtx.currentTime+d)}catch(e){}}
+function musicStart(){if(musicTimer||!audio)return;let n=0;musicTimer=setInterval(()=>{if(mode!=='play')return;[392,494,587,523,440,523,659,587].forEach((f,i)=>{if(i===n%8)sound(f,.09,'square',.009)});n++},170)}
+function musicStop(){clearInterval(musicTimer);musicTimer=null}
+function hud(){$('score').textContent=String(score).padStart(4,'0');$('time').textContent=Math.ceil(time);$('lives').textContent='♥ '.repeat(lives).trim()||'—'}
+function start(){score=0;time=60;lives=3;items=[];sparks=[];spawn=.3;elapsed=0;player.x=270;mode='play';$('overlay').style.display='none';hud();musicStart();last=performance.now();requestAnimationFrame(loop)}
+function finish(){
+ mode='over';musicStop();$('overlay').style.display='flex';
+ $('panel').innerHTML=`<div class="logo">GAME OVER!</div><p>Skor kamu</p><div class="score-value">${score}</div><p>Rekor terbaik: ${Math.max(score,Number(localStorage.getItem('coinBest')||0))}</p><button class="primary" id="again">COBA LAGI</button><button class="primary secondary" id="share">BAGIKAN SKORMU</button><p style="font-size:13px;margin-bottom:0">Bagikan hasil permainanmu ke Media Sosial</p>`;
+ const best=Math.max(score,Number(localStorage.getItem('coinBest')||0));localStorage.setItem('coinBest',best);
+ $('again').onclick=start;
+ $('share').onclick=async()=>{
+   const btn=$('share'), original='BAGIKAN SKORMU';
+   const publicGameUrl='https://babyhueyproject.github.io/coincatcher-game';
+   const shareText=`Skor Coin Catcher-ku: ${score}!${publicGameUrl?'\nMainkan di sini: '+publicGameUrl:''}`;
+   btn.disabled=true;btn.textContent='MEMBUAT GAMBAR...';
+   try{
+
+     // Poster share score memakai background pilihan pengguna.
+     const shot=document.createElement('canvas');shot.width=1080;shot.height=1920;
+     const ctx=shot.getContext('2d');
+     const bg=new Image();
+     bg.src='assets/share_score_background.png';
+     await bg.decode();
+     ctx.imageSmoothingEnabled=false;
+     ctx.drawImage(bg,0,0,1080,1920);
+
+     const label=(t,x,y,size,color,weight='900',stroke='#17213c',line=12)=>{
+       ctx.save();
+       ctx.font=`${weight} ${size}px Arial,Helvetica,sans-serif`;
+       ctx.textAlign='center';ctx.textBaseline='middle';
+       ctx.lineJoin='round';ctx.lineWidth=line;ctx.strokeStyle=stroke;
+       ctx.shadowColor='#071020';ctx.shadowOffsetY=7;
+       ctx.strokeText(t,x,y);ctx.fillStyle=color;ctx.fillText(t,x,y);
+       ctx.restore();
+     };
+
+     // Tipografi dan hierarki mengikuti layout referensi yang baru diberikan.
+     label('BISA KALAH, TAPI JANGAN MENYERAH!',540,220,39,'#fff2cf','900','#3b1420',12);
+     label('Coba kalahkan skorku!',540,310,34,'#ffd45b','900','#3b1420',9);
+     label('Jangan sampai bom tertangkap!',540,365,27,'#fff2cf','800','#3b1420',8);
+     label('SKOR AKHIR',540,500,36,'#fff2cf','900','#3b1420',11);
+     label(String(score),540,645,154,'#ffd23f','900','#3b1420',20);
+     const visibleUrl='https://babyhueyproject.github.io/coincatcher-game';
+     label('Mainkan di sini: '+visibleUrl,540,825,20,'#fff2cf','800','#3b1420',7);
+
+     const blob=await new Promise((resolve,reject)=>shot.toBlob(b=>b?resolve(b):reject(new Error('Gagal membuat gambar')), 'image/png'));
+     const file=new File([blob],`coin-catcher-score-${score}.png`,{type:'image/png'});
+     btn.textContent='MEMBUKA MENU BAGIKAN...';
+     if(typeof navigator.share==='function' && typeof navigator.canShare==='function' && navigator.canShare({files:[file]})){
+       await navigator.share({files:[file],title:'Coin Catcher — Baby Huey Games',text:shareText});
+       btn.textContent='TERBAGIKAN ✓';
+     }else{
+       // Fallback: unduh kartu skor dan bagikan teksnya.
+       const url=URL.createObjectURL(blob),a=document.createElement('a');
+       a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
+       let copied=false;
+       try{await navigator.clipboard.writeText(shareText);copied=true}catch(e){}
+       btn.textContent=copied?'GAMBAR DISIMPAN · TEKS DISALIN':'GAMBAR DISIMPAN';
+     }
+   }catch(err){
+     if(err && err.name==='AbortError'){btn.textContent=original}
+     else{btn.textContent='COBA BAGIKAN LAGI';console.error(err)}
+   }
+   setTimeout(()=>{btn.textContent=original;btn.disabled=false},2600);
+ };
+}
+$('start').onclick=start;
+$('sound').onclick=()=>{$('sound').textContent=audio?'♫ OFF':'♫ ON';audio=!audio;if(!audio)musicStop();else if(mode==='play')musicStart()};
+window.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key.toLowerCase()==='a'){keys.left=true;e.preventDefault()}if(e.key==='ArrowRight'||e.key.toLowerCase()==='d'){keys.right=true;e.preventDefault()}if(e.key===' '&&mode==='title')start()});
+window.addEventListener('keyup',e=>{if(e.key==='ArrowLeft'||e.key.toLowerCase()==='a')keys.left=false;if(e.key==='ArrowRight'||e.key.toLowerCase()==='d')keys.right=false});
+c.addEventListener('pointerdown',e=>{if(mode!=='play')return;drag=true;movePointer(e)});
+c.addEventListener('pointermove',e=>{if(drag)movePointer(e)});
+window.addEventListener('pointerup',()=>drag=false);
+function movePointer(e){let r=c.getBoundingClientRect();player.x=(e.clientX-r.left)/r.width*W;player.x=Math.max(48,Math.min(W-48,player.x))}
+function R(x,y,w,h,col){g.fillStyle=col;g.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h))}
+function T(s,x,y,size,col,align='left'){g.fillStyle=col;g.font=`bold ${size}px monospace`;g.textAlign=align;g.fillText(s,x,y)}
+function background(){
+ // Rich layered twilight sky with smooth color bands and pixel cloud clusters
+ const sky=g.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#101b3c');sky.addColorStop(.42,'#263f70');sky.addColorStop(.76,'#4b5275');sky.addColorStop(1,'#1b3547');
+ g.fillStyle=sky;g.fillRect(0,0,W,H);
+ // Single full pixel-art moon. Avoid overlapping circles that created a strange crescent/double-moon effect.
+ g.fillStyle='#f3d995';g.beginPath();g.arc(420,170,48,0,Math.PI*2);g.fill();
+ // Soft pixel shading and a few restrained craters, all kept inside the moon disc.
+ R(397,143,7,5,'#e9c982');
+ R(431,154,6,5,'#edcf8d');
+ R(410,184,9,6,'#e8c77f');
+ R(435,190,5,4,'#e9c982');
+ R(389,174,4,3,'#f8e6b4');
+ // starfield with twinkling glints
+ for(let i=0;i<90;i++){let x=(i*97+23)%W,y=(i*173+19)%590;let pulse=.45+.55*Math.sin(elapsed*2+i);R(x,y,2+(i%9===0?2:0),2+(i%9===0?2:0),i%4===0?'#fff0bf':'#b9d8ee');if(i%9===0){R(x-5,y+1,12,1,'#d4e7f1');R(x,y-5,1,12,'#d4e7f1')}}
+ // drifting pixel clouds
+ for(let j=0;j<4;j++){let x=((j*175+elapsed*9)%(W+130))-65,y=250+j*75;R(x+12,y,74,14,'#526b8c');R(x+28,y-12,42,18,'#637d9b');R(x+6,y+9,91,7,'#405b7b');R(x+20,y+1,55,3,'#8ba0b2')}
+ // layered far mountains / skyline
+ for(let i=0;i<7;i++){let x=i*88-20;R(x,590,120,115,'#293d5a');R(x+18,555,80,45,'#293d5a');R(x+34,535,45,28,'#344b68');for(let k=0;k<4;k++)R(x+20+k*19,615+(k%2)*13,5,7,'#e6b96b')}
+ // foreground hill and little pine silhouettes
+ R(0,700,W,180,'#244b4d');R(0,735,W,145,'#315d50');
+ for(let i=0;i<12;i++){let x=i*51-12,y=690+(i%3)*25;R(x+12,y+30,8,48,'#573f3b');R(x,y+13,32,28,'#1d493f');R(x+5,y,23,24,'#28604c');R(x+10,y-9,14,18,'#347657')}
+ // platform / floor with tile texture
+ R(0,880,W,80,'#243e3d');R(0,880,W,8,'#91bd70');R(0,888,W,4,'#456b50');
+ for(let x=0;x<W;x+=32){R(x,900,20,4,'#537c59');R(x+12,930,10,3,'#1a3337');R(x+4,946,18,2,'#35574b')}
+ // decorative gold columns with beveled highlights
+ // Street lamp: shorten the head assembly vertically while keeping the post height and overall placement.
+ function drawStreetLamp(cx){
+   const sx=0.8925, sy=0.646, top=608;
+   const px=(x,y,w,h,col)=>R(cx+x*sx,top+y*sx,w*sx,h*sx,col);
+   const ph=(x,y,w,h,col)=>R(cx+x*sx,top+y*sx*sy,w*sx,h*sx*sy,col);
+
+   // Pole terminates INTO a single solid pedestal, following reference image 2.
+   // Draw the shaft first so the pedestal sits in front of it as one connected base.
+   px(-6,166,12,116,'#1d304b');
+   px(-3,169,7,113,'#405d78');
+   px(-1,171,3,110,'#7894a8');
+   px(3,170,2,112,'#2c4662');
+
+   // One compact, continuous foot: dark outer casing, blue-gray inset, pale top bevel.
+   R(cx-26*sx,top+278*sx,52*sx,19*sx,'#17283f');
+   R(cx-22*sx,top+281*sx,44*sx,12*sx,'#405a70');
+   R(cx-19*sx,top+281*sx,38*sx,4*sx,'#8fa6b4');
+   R(cx-17*sx,top+282*sx,34*sx,3*sx,'#c0b98e');
+   R(cx-21*sx,top+293*sx,42*sx,3*sx,'#263f5b');
+
+   // Compact finial and neck.
+   ph(-7,-1,14,8,'#17283f');
+   ph(-5,3,10,13,'#293f5a');
+   ph(-3,5,6,8,'#7893a4');
+   ph(-7,14,14,8,'#1b2d48');
+   ph(-9,19,18,5,'#243c58');
+
+   // Shorter, wider-looking stepped metal hood.
+   ph(-20,21,40,5,'#17283f');
+   ph(-24,25,48,6,'#243b57');
+   ph(-28,31,56,7,'#17283f');
+   ph(-26,38,52,6,'#71899a');
+   ph(-22,38,43,3,'#b4c0b8');
+   ph(-19,41,38,3,'#879eaa');
+   ph(-26,44,52,5,'#344f6b');
+   ph(-29,48,58,5,'#1b2e49');
+
+   // Glass housing with orange side panes and bright warm center.
+   ph(-23,51,46,63,'#17283f');
+   ph(-19,54,38,57,'#263e5b');
+   ph(-17,58,7,47,'#8d452d');
+   ph(-15,61,5,40,'#e8752d');
+   ph(-13,64,3,33,'#ff9b35');
+   ph(10,58,7,47,'#8d452d');
+   ph(10,61,5,40,'#e8752d');
+   ph(10,64,3,33,'#ff9b35');
+   ph(-10,57,20,51,'#f29a22');
+   ph(-9,61,18,43,'#ffc32f');
+   ph(-7,65,14,35,'#ffe16a');
+   ph(-5,70,10,27,'#fff0a4');
+   ph(-4,74,8,19,'#fff6c5');
+   ph(-12,53,3,60,'#17283f');
+   ph(9,53,3,60,'#17283f');
+
+   // Lower cap, then a continuous metal neck joining directly into the tall pole.
+   ph(-29,112,58,7,'#17283f');
+   ph(-26,117,52,8,'#263f5c');
+   ph(-24,118,48,3,'#7892a2');
+   ph(-21,122,42,4,'#405c76');
+   // Bridge the shortened head to the pole: no visible gap or floating parts.
+   R(cx-8*sx, top+126*sx*sy, 16*sx, (166-126*sy)*sx, '#17283f');
+   R(cx-6*sx, top+127*sx*sy, 12*sx, (166-127*sy)*sx, '#2b4664');
+   R(cx-3*sx, top+129*sx*sy, 6*sx, (166-129*sy)*sx, '#607f97');
+   R(cx+3*sx, top+129*sx*sy, 2*sx, (166-129*sy)*sx, '#344f6b');
+ }
+ for(const cx of [42,498]) drawStreetLamp(cx);
+}
+function drawCoin(o){
+ const x=Math.round(o.x), y=Math.round(o.y);
+ const spin=Math.abs(Math.cos(o.rot));
+ if(o.type==='bomb'){
+   R(x-16,y+13,34,7,'#111b2a');R(x-14,y-13,28,29,'#1b2635');
+   R(x-12,y-16,24,29,'#596575');R(x-9,y-14,18,25,'#303d4c');
+   R(x-7,y-11,14,19,'#202c39');R(x-10,y-8,4,10,'#758394');
+   R(x+5,y-9,4,11,'#111a25');R(x-3,y-18,10,5,'#a8753f');
+   R(x+1,y-24,8,7,'#e0a24a');R(x+7,y-30,5,7,Math.sin(elapsed*16)>0?'#fff0a0':'#ff7046');
+   R(x+11,y-34,3,4,'#ffd77a');R(x+4,y-35,2,3,'#ff7046');
+   R(x-10,y-4,3,3,'#c0c9ce');R(x+8,y-4,3,3,'#c0c9ce');return;
+ }
+ // Koin bulat pixel-art: diameter tetap bulat, hanya sumbu X yang mengecil saat berputar.
+ const special=o.type==='star', rows=[8,16,22,26,28,30,30,30,30,30,28,26,22,16,8];
+ const sx=Math.max(.09,spin), unit=2;
+ const edge=special?'#9d651d':'#8e5418', rim=special?'#e8b94e':'#c18427';
+ rows.forEach((rw,i)=>{
+   const yy=y-15+i*2, ww=Math.max(1,Math.round(rw*sx));
+   const xx=Math.round(x-ww/2);
+   R(xx,yy,ww,2,edge);
+   if(ww>3) R(xx+1,yy,ww-2,1,rim);
+   if(ww>7) R(xx+2,yy+1,ww-4,1,special?'#fff0a0':'#f6d16a');
+ });
+ if(sx>.48){
+   const w=Math.round(24*sx), lx=Math.round(x-w/2);
+   R(lx+Math.round(w*.25),y-5,Math.max(1,Math.round(w*.5)),2,'#fff4bb');
+   R(lx+Math.round(w*.32),y-3,Math.max(1,Math.round(w*.36)),8,special?'#fff1a0':'#c47b22');
+   R(lx+Math.round(w*.2),y+4,Math.max(1,Math.round(w*.6)),2,'#b87524');
+   R(lx+Math.round(w*.43),y-7,Math.max(1,Math.round(w*.14)),12,'#fff0a0');
+ }
+}
+function drawPlayer(){
+ let x=Math.round(player.x),y=player.y;
+ // soft cast shadow
+ g.fillStyle='#101b2a88';g.beginPath();g.ellipse(x,y+39,54,12,0,0,Math.PI*2);g.fill();
+ // Basket body first; fire is layered ON TOP of the front weave.
+ R(x-43,y-3,86,44,'#874c2b');
+ R(x-39,y,78,36,'#bd783e');R(x-36,y+3,72,29,'#d18b4c');
+ for(let k=0;k<7;k++){R(x-34+k*11,y+3,4,29,k%2?'#e3a15b':'#9e5b31');R(x-34,y+5+k*5,68,2,'#f1b76a')}
+ // Flames enlarged another 50%; preserve original pixel shape and animation.
+ if(player.fireTimer>0){
+   const phase=Math.floor(elapsed*14);
+   for(let side of [-1,1]){
+     for(let j=0;j<4;j++){
+       const fx=x+side*(28+j*5), base=y+18;
+       const rise=((phase+j*3)%5)*6;
+       R(fx-9,base-rise-30,18,30,'#d94324');
+       R(fx-6,base-rise-24,12,24,'#ff8b27');
+       R(fx-3,base-rise-17,8,17,'#ffd65a');
+       if((phase+j)%3===0) R(fx-3,base-rise-38,6,9,'#ffe99a');
+     }
+   }
+ }
+ R(x-44,y-8,88,13,'#8c552d');R(x-41,y-7,82,7,'#f3c15c');R(x-38,y-5,76,3,'#ffe7a0');
+ R(x-38,y+37,76,6,'#704127');R(x-33,y+39,66,2,'#e4a05a');
+ // small catcher: hair, ears, face, cap, eyes and smile
+ R(x-19,y-39,38,34,'#a96b4a');R(x-16,y-44,32,15,'#d99b70');R(x-21,y-48,42,13,'#273f61');
+ R(x-19,y-54,38,11,'#f0c14f');R(x-15,y-58,30,7,'#dca33c');R(x-19,y-45,8,6,'#553b36');R(x+11,y-45,8,6,'#553b36');
+ R(x-10,y-33,5,6,'#172333');R(x+5,y-33,5,6,'#172333');R(x-9,y-35,2,2,'#fff');R(x+6,y-35,2,2,'#fff');
+ R(x-4,y-22,9,3,'#8d453b');R(x-2,y-20,5,2,'#f1c18c');
+ // shirt, collar, sleeves and hands
+ R(x-22,y-12,44,19,'#285d87');R(x-17,y-10,34,13,'#397ca7');R(x-7,y-12,14,6,'#f4d16b');
+ R(x-29,y-9,9,21,'#d99b70');R(x+20,y-9,9,21,'#d99b70');R(x-30,y+8,10,5,'#f2bd8c');R(x+20,y+8,10,5,'#f2bd8c');
+ // decorative basket badge
+ R(x-9,y+13,18,12,'#f5c451');R(x-6,y+15,12,8,'#284c70');R(x-3,y+16,6,6,'#ffe7a0');
+}
+function burst(x,y,col){for(let i=0;i<18;i++)sparks.push({x,y,vx:rand(-190,190),vy:rand(-220,50),life:rand(.35,.8),col,size:rand(2,6)})}
+function update(dt){
+ elapsed+=dt;time-=dt;player.fireTimer=Math.max(0,player.fireTimer-dt);if(time<=0){time=0;hud();finish();return}
+ let dir=(keys.right?1:0)-(keys.left?1:0);player.x+=dir*390*dt;player.x=Math.max(48,Math.min(W-48,player.x));
+ spawn-=dt;if(spawn<=0){let r=Math.random(),type=r<.16?'bomb':r>.91?'star':'coin';items.push({x:rand(35,W-35),y:-35,vy:rand(230,340)+(60-elapsed)*1.1,type,rot:0});spawn=Math.max(.22,.68-elapsed*.004)+Math.random()*.28}
+ for(let i=items.length-1;i>=0;i--){let o=items[i];o.y+=o.vy*dt;o.rot+=dt*5;if(Math.abs(o.x-player.x)<47&&o.y>player.y-30&&o.y<player.y+42){if(o.type==='bomb'){lives--;player.fireTimer=1.8;sound(130,.22,'sawtooth');burst(o.x,o.y,'#ef655b');burst(player.x,player.y+5,'#ff8b32')}else{score+=o.type==='star'?100:10;sound(o.type==='star'?1000:760,.08);burst(o.x,o.y,o.type==='star'?'#fff0a0':'#f6c451')}items.splice(i,1);hud();if(lives<=0){finish();return}}else if(o.y>H+30)items.splice(i,1)}
+ for(let i=sparks.length-1;i>=0;i--){let p=sparks[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=260*dt;p.life-=dt;if(p.life<=0)sparks.splice(i,1)}
+ hud();
+}
+function render(){background(); // floating distant coin glints
+ for(let i=0;i<8;i++){let x=(i*73+Math.sin(elapsed+i)*12+540)%540,y=(i*109+elapsed*15)%650;R(x,y,2,2,'#55779a')}
+ items.forEach(drawCoin);sparks.forEach(p=>R(p.x,p.y,p.size||4,p.size||4,p.col));drawPlayer();
+ T('CATCH THE GOLD!',270,112,19,'#f7d16a','center');T('★  GOLD RUSH  ★',270,137,10,'#b9d8ee','center');
+}
+function loop(now){if(mode!=='play')return;let dt=Math.min((now-last)/1000,.035);last=now;update(dt);render();if(mode==='play')requestAnimationFrame(loop)}
+background();drawPlayer();
+})();
+</script>
+</body></html>
