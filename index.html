@@ -67,7 +67,7 @@ function finish(){
  $('again').onclick=start;
  $('share').onclick=async()=>{
    const btn=$('share'), original='BAGIKAN SKORMU';
-   const publicGameUrl='https://babyhueyproject.github.io/coincatcher-game';
+   const publicGameUrl='https://babyhueyproject.github.io/coincatcher-game/';
    const shareText=`Skor Coin Catcher-ku: ${score}!${publicGameUrl?'\nMainkan di sini: '+publicGameUrl:''}`;
    btn.disabled=true;btn.textContent='MEMBUAT GAMBAR...';
    try{
@@ -97,7 +97,7 @@ function finish(){
      label('Jangan sampai bom tertangkap!',540,365,27,'#fff2cf','800','#3b1420',8);
      label('SKOR AKHIR',540,500,36,'#fff2cf','900','#3b1420',11);
      label(String(score),540,645,154,'#ffd23f','900','#3b1420',20);
-     const visibleUrl='https://babyhueyproject.github.io/coincatcher-game';
+     const visibleUrl='https://babyhueyproject.github.io/coincatcher-game/';
      label('Mainkan di sini: '+visibleUrl,540,825,20,'#fff2cf','800','#3b1420',7);
 
      const blob=await new Promise((resolve,reject)=>shot.toBlob(b=>b?resolve(b):reject(new Error('Gagal membuat gambar')), 'image/png'));
